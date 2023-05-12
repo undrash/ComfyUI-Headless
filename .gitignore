@@ -10,3 +10,4 @@ custom_nodes/
 extra_model_paths.yaml
 /.vs
 node_modules
+data/
