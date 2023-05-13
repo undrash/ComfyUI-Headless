@@ -1,9 +1,10 @@
 const fs = require('fs');
+const path = require('path');
 const { ComfyApi } = require('./ComfyApi');
 
-async function main() {
-  const fileName = 'input.json';
+const filePath = path.join(__dirname, 'input.json');
 
+async function main() {
   // Create an instance
   const comfyApi = new ComfyApi();
 
@@ -28,12 +29,15 @@ async function main() {
   comfyApi.init();
 
   try {
-    const fileContents = fs.readFileSync(fileName, { encoding: 'utf-8' });
+    const fileContents = fs.readFileSync(filePath, { encoding: 'utf-8' });
     const prompt = JSON.parse(fileContents);
 
-    await comfyApi.queuePrompt(prompt);
+    setInterval(async () => {
+      console.log('SIDECAR: queuing prompt...');
+      await comfyApi.queuePrompt(prompt);
+    }, 5000);
   } catch (error) {
-    console.error(`Error reading file: ${fileName}`, error);
+    console.error(`Error reading file: ${filePath}`, error);
   }
 }
 

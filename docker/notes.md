@@ -6,6 +6,12 @@ To run the `comfy` service using Docker without Docker Compose, you can use the 
 docker run -it --rm -p 7860:7860 -v $(pwd)/data:/data -v $(pwd)/output:/output -v $(pwd)/models:/models --stop-signal=SIGINT --name comfy comfy:latest
 ```
 
+
+Run non-interactive
+```bash
+docker run -p 7860:7860 -v $(pwd)/data:/data -v $(pwd)/output:/output -v $(pwd)/models:/models --name comfy comfy:latest
+```
+
 Here's the breakdown of the command:
 
 - `docker run`: The main command to run a Docker container.
