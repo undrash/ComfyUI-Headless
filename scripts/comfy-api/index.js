@@ -6,14 +6,16 @@ const {
 const { ComfyApi } = require('./ComfyApi');
 
 const REGION = process.env.REGION || 'eu-north-1';
+const SQS_ENDPOINT = process.env.SQS_ENDPOINT || 'http://localhost:4566';
+const SQS_QUEUE_URL =
+  process.env.SQS_URL || 'http://localhost:4566/000000000000/inference';
 
 const sqs = new SQSClient({
   region: REGION,
-  endpoint: 'http://localhost:4566',
+  endpoint: SQS_ENDPOINT,
 });
 
-const QUEUE_URL = 'http://localhost:4566/000000000000/inference';
-const WAIT_TIME_SECONDS = 20;
+const WAIT_TIME_SECONDS = Number(process.env.WAIT_TIME_SECONDS) || 20;
 
 const getSqsMessage = async (queueUrl, timeWait) => {
   const params = {
@@ -92,14 +94,14 @@ async function main() {
   while (true) {
     console.log('Waiting for next message from Queue...');
     let [payload, receiptHandle] = await getSqsMessage(
-      QUEUE_URL,
+      SQS_QUEUE_URL,
       WAIT_TIME_SECONDS
     );
 
     if (!payload) {
       while (!payload) {
         [payload, receiptHandle] = await getSqsMessage(
-          QUEUE_URL,
+          SQS_QUEUE_URL,
           WAIT_TIME_SECONDS
         );
         if (payload) {
@@ -118,7 +120,7 @@ async function main() {
 
     // TODO: Message should only be deleted after we got a websocket confirmation
     // and we uploaded the image somewhere
-    await deleteSQSMessage(QUEUE_URL, receiptHandle);
+    await deleteSQSMessage(SQS_QUEUE_URL, receiptHandle);
   }
 }
 
