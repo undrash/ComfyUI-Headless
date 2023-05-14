@@ -12,6 +12,12 @@ Run non-interactive
 docker run -p 7860:7860 -v $(pwd)/data:/data -v $(pwd)/output:/output -v $(pwd)/models:/models --name comfy comfy:latest
 ```
 
+Run with SIGTERM stop signal
+```sh
+docker run -p 8188:8188 -v $(pwd)/data:/data -v $(pwd)/output:/output -v $(pwd)/models:/models --stop-signal=SIGTERM --name comfy comfy-headless-sidecar:latest
+```
+
+
 Here's the breakdown of the command:
 
 - `docker run`: The main command to run a Docker container.
