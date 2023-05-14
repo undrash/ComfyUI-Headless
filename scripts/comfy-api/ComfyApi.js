@@ -5,7 +5,7 @@ class ComfyApi extends EventEmitter {
   #registered = new Set();
   #address = '127.0.0.1:8188';
 
-  clientId = 'ababa';
+  clientId = 'sidecar';
 
   constructor() {
     super();
@@ -34,10 +34,6 @@ class ComfyApi extends EventEmitter {
     }
 
     let opened = false;
-    // let existingSession = clientId;
-    // if (existingSession) {
-    //   existingSession = '?clientId=' + existingSession;
-    // }
 
     this.socket = new WebSocket(
       `ws://${this.#address}/ws${'?clientId=' + this.clientId}`
@@ -124,12 +120,6 @@ class ComfyApi extends EventEmitter {
       client_id: this.clientId,
       ...prompt,
     };
-
-    // if (number === -1) {
-    //   body.front = true;
-    // } else if (number != 0) {
-    //   body.number = number;
-    // }
 
     const res = await fetch(`http://${this.#address}/prompt`, {
       method: 'POST',
