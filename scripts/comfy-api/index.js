@@ -1,10 +1,65 @@
-const fs = require('fs');
-const path = require('path');
+const {
+  SQSClient,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+} = require('@aws-sdk/client-sqs');
 const { ComfyApi } = require('./ComfyApi');
 
-const filePath = path.join(__dirname, 'input.json');
+const REGION = process.env.REGION || 'eu-north-1';
 
-async function main() {
+const sqs = new SQSClient({
+  region: REGION,
+  endpoint: 'http://localhost:4566',
+});
+
+const QUEUE_URL = 'http://localhost:4566/000000000000/inference';
+const WAIT_TIME_SECONDS = 20;
+
+const getSqsMessage = async (queueUrl, timeWait) => {
+  const params = {
+    QueueUrl: queueUrl,
+    AttributeNames: ['SentTimestamp'],
+    MaxNumberOfMessages: 1,
+    MessageAttributeNames: ['All'],
+    WaitTimeSeconds: timeWait,
+  };
+
+  const command = new ReceiveMessageCommand(params);
+
+  const response = await sqs.send(command);
+
+  if (!response.Messages || !response.Messages.length) {
+    return [null, null];
+  }
+
+  const [message] = response.Messages;
+
+  let payload = message.Body;
+
+  try {
+    payload = JSON.parse(message.Body);
+  } catch (err) {
+    console.log('Error parsing message body: ', err.toString());
+    console.log('Faulty message body: ', message.Body);
+    await deleteSQSMessage(queueUrl, message.ReceiptHandle);
+    return [null, null];
+  }
+
+  return [payload, message.ReceiptHandle];
+};
+
+const deleteSQSMessage = async (queueUrl, receiptHandle) => {
+  const command = new DeleteMessageCommand({
+    QueueUrl: queueUrl,
+    ReceiptHandle: receiptHandle,
+  });
+
+  await sqs.send(command);
+
+  console.log('Deleted message.', receiptHandle);
+};
+
+const initComfyApi = () => {
   // Create an instance
   const comfyApi = new ComfyApi();
 
@@ -28,16 +83,42 @@ async function main() {
   // Initialize the WebSocket connection
   comfyApi.init();
 
-  try {
-    const fileContents = fs.readFileSync(filePath, { encoding: 'utf-8' });
-    const prompt = JSON.parse(fileContents);
+  return comfyApi;
+};
 
-    setInterval(async () => {
-      console.log('SIDECAR: queuing prompt...');
-      await comfyApi.queuePrompt(prompt);
-    }, 5000);
-  } catch (error) {
-    console.error(`Error reading file: ${filePath}`, error);
+async function main() {
+  const comfyApi = initComfyApi();
+
+  while (true) {
+    console.log('Waiting for next message from Queue...');
+    let [payload, receiptHandle] = await getSqsMessage(
+      QUEUE_URL,
+      WAIT_TIME_SECONDS
+    );
+
+    if (!payload) {
+      while (!payload) {
+        [payload, receiptHandle] = await getSqsMessage(
+          QUEUE_URL,
+          WAIT_TIME_SECONDS
+        );
+        if (payload) {
+          break;
+        }
+      }
+    }
+
+    console.log('Found a message!');
+
+    console.log('payload: ', payload);
+    console.log('receiptHandle: ', receiptHandle);
+
+    // Do the inference
+    await comfyApi.queuePrompt(payload);
+
+    // TODO: Message should only be deleted after we got a websocket confirmation
+    // and we uploaded the image somewhere
+    await deleteSQSMessage(QUEUE_URL, receiptHandle);
   }
 }
 
