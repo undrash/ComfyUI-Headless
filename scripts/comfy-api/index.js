@@ -6,13 +6,15 @@ const {
 const { ComfyApi } = require('./ComfyApi');
 
 const REGION = process.env.REGION || 'eu-north-1';
-const SQS_ENDPOINT = process.env.SQS_ENDPOINT || 'http://localhost:4566';
+const SQS_ENDPOINT = process.env.SQS_ENDPOINT || 'http://localhost:4566'; // For local development
 const SQS_QUEUE_URL =
-  process.env.SQS_URL || 'http://localhost:4566/000000000000/inference';
+  process.env.SQS_QUEUE_URL || 'http://localhost:4566/000000000000/inference';
+
+const NODE_ENV = process.env.NODE_ENV || 'dev';
 
 const sqs = new SQSClient({
   region: REGION,
-  endpoint: SQS_ENDPOINT,
+  ...(NODE_ENV === 'dev' && { endpoint: SQS_ENDPOINT }),
 });
 
 const WAIT_TIME_SECONDS = Number(process.env.WAIT_TIME_SECONDS) || 20;
