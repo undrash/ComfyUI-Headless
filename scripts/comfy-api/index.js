@@ -3,18 +3,26 @@ const {
   ReceiveMessageCommand,
   DeleteMessageCommand,
 } = require('@aws-sdk/client-sqs');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+
 const { ComfyApi, COMFY_ADDRESS } = require('./ComfyApi');
 
 const REGION = process.env.REGION || 'eu-north-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT || 'http://localhost:4566'; // For local development
 const SQS_QUEUE_URL =
   process.env.SQS_QUEUE_URL || 'http://localhost:4566/000000000000/inference';
+const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'inference';
 
 const NODE_ENV = process.env.NODE_ENV || 'dev';
 
 const sqs = new SQSClient({
   region: REGION,
   ...(NODE_ENV === 'dev' && { endpoint: AWS_ENDPOINT }),
+});
+
+const s3 = new S3Client({
+  region: REGION,
+  ...(NODE_ENV === 'dev' && { endpoint: AWS_ENDPOINT, forcePathStyle: true }),
 });
 
 const WAIT_TIME_SECONDS = Number(process.env.WAIT_TIME_SECONDS) || 20;
@@ -64,7 +72,7 @@ const deleteSQSMessage = async (queueUrl, receiptHandle) => {
 };
 
 const saveResultImages = async (images) => {
-  const imagePromises = images.map(async (image) => {
+  const imagePromises = images.map(async (image, i) => {
     const { filename, subfolder, type } = image;
     const url = `http://${COMFY_ADDRESS}/view?filename=${filename}&subfolder=${subfolder}&type=${type}`;
     const response = await fetch(url);
@@ -79,25 +87,15 @@ const saveResultImages = async (images) => {
 
     const buffer = Buffer.from(arrayBuffer);
 
-    // Write file to disk
-    const fs = require('fs');
-    const path = require('path');
-    const filePath = path.join(
-      __dirname,
-      'images',
-      `${CURRENT_INFERENCE_ID}.png`
-    );
-    fs.writeFileSync(filePath, buffer);
+    const imageName = `${CURRENT_INFERENCE_ID}_${i}.png`;
 
-    // const imageKey = `${subfolder}/${filename}`;
-    // await s3
-    //   .putObject({
-    //     Bucket: S3_BUCKET_NAME,
-    //     Key: imageKey,
-    //     Body: imageBuffer,
-    //   })
-    //   .promise();
-    // return imageKey;
+    const command = new PutObjectCommand({
+      Bucket: S3_BUCKET_NAME,
+      Key: imageName,
+      Body: buffer,
+    });
+
+    await s3.send(command);
   });
 
   return Promise.all(imagePromises);
@@ -195,14 +193,25 @@ const validatePayload = (payload) => {
 };
 
 const inferenceReady = async () => {
+  let elapsedTime = 0;
+  // TODO: Lift these to environment variables
+  const maxTime = 60 * 1000; // 1 minute
+  const waitTime = 2000; // 2 seconds
+
   while (true) {
-    // Wait 3 seconds
+    // Wait 2 seconds
     console.log('Waiting for prompt to be ready...');
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
+    elapsedTime += waitTime;
 
     if (INFERENCE_STATUS[CURRENT_INFERENCE_ID]) {
       console.log('Prompt is ready!');
       return INFERENCE_STATUS[CURRENT_INFERENCE_ID];
+    }
+
+    // Throw an error if the maximum time is reached
+    if (elapsedTime >= maxTime) {
+      throw new Error('Timed out waiting for prompt to be ready');
     }
   }
 };
