@@ -1,9 +1,11 @@
 const EventEmitter = require('events');
 const WebSocket = require('ws');
 
+const COMFY_ADDRESS = '127.0.0.1:8188';
+
 class ComfyApi extends EventEmitter {
   #registered = new Set();
-  #address = '127.0.0.1:8188';
+  #address = COMFY_ADDRESS;
 
   clientId = 'sidecar';
 
@@ -150,4 +152,5 @@ class ComfyApi extends EventEmitter {
 
 module.exports = {
   ComfyApi,
+  COMFY_ADDRESS,
 };
