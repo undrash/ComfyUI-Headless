@@ -4,6 +4,7 @@ const {
   DeleteMessageCommand,
 } = require('@aws-sdk/client-sqs');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
 
 const { ComfyApi, COMFY_ADDRESS } = require('./ComfyApi');
 
@@ -12,6 +13,9 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT || 'http://localhost:4566'; // For
 const SQS_QUEUE_URL =
   process.env.SQS_QUEUE_URL || 'http://localhost:4566/000000000000/inference';
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'inference';
+const SNS_TOPIC_ARN =
+  process.env.SNS_TOPIC_ARN ||
+  'arn:aws:sns:eu-north-1:000000000000:inference.fifo';
 
 const NODE_ENV = process.env.NODE_ENV || 'dev';
 
@@ -23,6 +27,11 @@ const sqs = new SQSClient({
 const s3 = new S3Client({
   region: REGION,
   ...(NODE_ENV === 'dev' && { endpoint: AWS_ENDPOINT, forcePathStyle: true }),
+});
+
+const sns = new SNSClient({
+  region: REGION,
+  ...(NODE_ENV === 'dev' && { endpoint: AWS_ENDPOINT }),
 });
 
 const WAIT_TIME_SECONDS = Number(process.env.WAIT_TIME_SECONDS) || 20;
@@ -69,6 +78,18 @@ const deleteSQSMessage = async (queueUrl, receiptHandle) => {
   await sqs.send(command);
 
   console.log('Deleted message.', receiptHandle);
+};
+
+const publishSnsMessage = async (message) => {
+  const command = new PublishCommand({
+    TopicArn: SNS_TOPIC_ARN,
+    Message: JSON.stringify(message),
+    MessageGroupId: 'inference',
+  });
+
+  await sns.send(command);
+
+  console.log('Published SNS message.');
 };
 
 const saveResultImages = async (images) => {
@@ -130,6 +151,17 @@ const initComfyApi = () => {
       await saveResultImages(images);
     } catch (err) {
       console.log('Error saving result images: ', err.toString());
+      INFERENCE_STATUS[CURRENT_INFERENCE_ID] = InferenceStatusTypes.FAILED;
+      return;
+    }
+
+    try {
+      await publishSnsMessage({
+        pageId: CURRENT_INFERENCE_ID,
+        status: InferenceStatusTypes.COMPLETED,
+      });
+    } catch (err) {
+      console.log('Error publishing SNS message: ', err.toString());
       INFERENCE_STATUS[CURRENT_INFERENCE_ID] = InferenceStatusTypes.FAILED;
       return;
     }
