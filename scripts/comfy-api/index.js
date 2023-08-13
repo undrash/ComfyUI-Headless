@@ -117,6 +117,8 @@ const saveResultImages = async (images) => {
     });
 
     await s3.send(command);
+
+    return imageName;
   });
 
   return Promise.all(imagePromises);
@@ -147,8 +149,10 @@ const initComfyApi = () => {
       output: { images },
     } = data;
 
+    let imageNames = [];
+
     try {
-      await saveResultImages(images);
+      imageNames = await saveResultImages(images);
     } catch (err) {
       console.log('Error saving result images: ', err.toString());
       INFERENCE_STATUS[CURRENT_INFERENCE_ID] = InferenceStatusTypes.FAILED;
@@ -156,17 +160,19 @@ const initComfyApi = () => {
     }
 
     try {
-      await publishSnsMessage({
-        pageId: CURRENT_INFERENCE_ID,
-        status: InferenceStatusTypes.COMPLETED,
-      });
+      const image = PROCESSING_IMAGES[CURRENT_INFERENCE_ID];
+
+      image.status = InferenceStatusTypes.DONE;
+      image.files = imageNames;
+
+      await publishSnsMessage(image);
     } catch (err) {
       console.log('Error publishing SNS message: ', err.toString());
       INFERENCE_STATUS[CURRENT_INFERENCE_ID] = InferenceStatusTypes.FAILED;
       return;
     }
 
-    INFERENCE_STATUS[CURRENT_INFERENCE_ID] = InferenceStatusTypes.COMPLETED;
+    INFERENCE_STATUS[CURRENT_INFERENCE_ID] = InferenceStatusTypes.DONE;
   });
 
   // Initialize the WebSocket connection
@@ -205,19 +211,17 @@ const validatePayload = (payload) => {
     throw new Error('Validation Error: Payload not found.');
   }
 
-  if (!payload.id) {
-    throw new Error(
-      'Validation Error: The `id` field is missing from the message.'
-    );
-  }
+  const mandatoryFields = ['id', 'inferenceConfig', 'bookId', 'pageId'];
 
-  if (!payload.config) {
-    throw new Error(
-      'Validation Error: The `config` field is missing from the message.'
-    );
-  }
+  mandatoryFields.forEach((field) => {
+    if (!payload[field]) {
+      throw new Error(
+        `Validation Error: The \`config\` field is missing the \`${field}\` field.`
+      );
+    }
+  });
 
-  if (!isValidObject(payload.config)) {
+  if (!isValidObject(payload.inferenceConfig)) {
     throw new Error(
       'Validation Error: The `config` field is not a valid JSON object.'
     );
@@ -248,11 +252,13 @@ const inferenceReady = async () => {
   }
 };
 
-const INFERENCE_STATUS = {};
+// TODO: Look into how we can leverage the Comfy queue to process multiple images at once
 let CURRENT_INFERENCE_ID = null;
+const INFERENCE_STATUS = {};
+const PROCESSING_IMAGES = {};
 
 const InferenceStatusTypes = {
-  COMPLETED: 'completed',
+  DONE: 'done',
   FAILED: 'failed',
 };
 
@@ -294,13 +300,15 @@ async function main() {
       continue;
     }
 
-    const { id, config } = payload;
+    const { id, inferenceConfig } = payload;
 
     CURRENT_INFERENCE_ID = id;
 
+    PROCESSING_IMAGES[id] = payload;
+
+    // Do the inference
     try {
-      // Do the inference
-      await comfyApi.queuePrompt(config);
+      await comfyApi.queuePrompt(inferenceConfig);
 
       const status = await inferenceReady(id);
 
@@ -310,9 +318,9 @@ async function main() {
     }
 
     delete INFERENCE_STATUS[CURRENT_INFERENCE_ID];
+    delete PROCESSING_IMAGES[CURRENT_INFERENCE_ID];
+    CURRENT_INFERENCE_ID = null;
 
-    // TODO: Message should only be deleted after we got a websocket confirmation
-    // and we uploaded the image somewhere
     await deleteSQSMessage(SQS_QUEUE_URL, receiptHandle);
   }
 }
